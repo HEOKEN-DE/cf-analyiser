@@ -1,4 +1,4 @@
-# CF Cache Analyzer
+# Claudeflare Analyiser
 
 ## Project Overview
 

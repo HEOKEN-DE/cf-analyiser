@@ -1,6 +1,16 @@
-# CF Cache Analyzer
+# Claudeflare Analyiser
 
-A Chrome browser extension that analyzes Cloudflare caching headers and displays cache status for pages and resources in a clean, human-readable format.
+<p align="center">
+  <img src="icons/icon128.png" alt="Claudeflare Analyiser" width="128" height="128">
+</p>
+
+<p align="center">
+  A Chrome browser extension that analyzes Cloudflare caching headers and displays cache status for pages and resources in a clean, human-readable format.
+</p>
+
+<p align="center">
+  <a href="https://buymeacoffee.com/wasim.alhafez" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" height="40"></a>
+</p>
 
 ## Features
 
@@ -11,6 +21,7 @@ A Chrome browser extension that analyzes Cloudflare caching headers and displays
 - **WordPress support** — Detects WP Super Cache, APO, and disk cache headers
 - **Dark & light themes** — Toggle between themes from the options menu
 - **Per-site visibility** — Hide the bar on specific sites
+- **Show/hide by default** — Choose whether the bar appears or stays hidden globally
 - **Detailed panel** — Expand for full resource tables with clickable URLs, cache-control values, and Ray IDs
 
 ## Installation
@@ -44,7 +55,7 @@ A Chrome browser extension that analyzes Cloudflare caching headers and displays
    - **Browser TTL** — local browser cache duration
    - **Resource counts** with status indicators
 3. Click the **info button** to expand the detailed breakdown panel
-4. Click the **CF logo** for options (theme toggle, hide on site)
+4. Click the **Claudeflare** logo for options (theme toggle, visibility, buy me a coffee)
 
 ## How It Works
 
@@ -67,6 +78,12 @@ All analysis happens locally in your browser. No data is sent anywhere.
 - Vanilla JavaScript (no frameworks, no build tools)
 - Chrome Extension Manifest V3
 - CSS with custom properties for theming
+
+## Support
+
+If you find this extension useful, consider buying me a coffee:
+
+<a href="https://buymeacoffee.com/wasim.alhafez" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" height="40"></a>
 
 ## License
 

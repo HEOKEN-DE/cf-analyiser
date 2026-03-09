@@ -1,5 +1,5 @@
 /**
- * CF Cache Analyzer - Background Service Worker
+ * Claudeflare Analyiser - Background Service Worker
  * Intercepts network requests and extracts Cloudflare caching headers
  */
 

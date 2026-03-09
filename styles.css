@@ -82,17 +82,33 @@ html.cf-analyzer-active body.admin-bar {
 
 .cf-logo {
   font-weight: 700;
-  color: #f48120;
-  font-size: 14px;
-  padding: 2px 8px;
+  font-size: 13px;
+  padding: 3px 10px;
   background: var(--cf-logo-bg);
   border-radius: 4px;
   cursor: pointer;
   transition: background 0.2s;
+  white-space: nowrap;
+  letter-spacing: -0.3px;
+}
+
+.cf-logo-claude {
+  color: #d4a574;
+}
+
+.cf-logo-flare {
+  color: #f48120;
 }
 
 .cf-logo:hover {
   background: var(--cf-bg-hover);
+}
+
+/* Phosphor Icons */
+.cf-icon {
+  display: inline-block;
+  vertical-align: middle;
+  flex-shrink: 0;
 }
 
 /* Options Menu */
@@ -137,6 +153,15 @@ html.cf-analyzer-active body.admin-bar {
 
 .cf-option-item.cf-option-info:hover {
   background: transparent;
+}
+
+.cf-option-coffee {
+  text-decoration: none;
+  color: var(--cf-text-primary);
+}
+
+.cf-option-coffee .cf-icon {
+  color: #ffdd00;
 }
 
 .cf-option-icon {
