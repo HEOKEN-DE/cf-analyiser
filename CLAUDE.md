@@ -1,4 +1,4 @@
-# Claudeflare Analyiser
+# Cloudflare Analyiser
 
 ## Project Overview
 
@@ -18,6 +18,9 @@ cf-analyiser/
 ├── background.js             # Service worker - intercepts network requests
 ├── content.js                # Content script - injects header bar UI
 ├── styles.css                # UI styles for the injected bar
+├── popup.html                # Extension popup - settings UI
+├── popup.js                  # Popup logic
+├── popup.css                 # Popup styling
 └── icons/
     ├── icon16.png            # Extension icon 16x16
     ├── icon48.png            # Extension icon 48x48

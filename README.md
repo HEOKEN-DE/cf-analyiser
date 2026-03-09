@@ -1,7 +1,7 @@
-# Claudeflare Analyiser
+# Cloudflare Analyiser
 
 <p align="center">
-  <img src="icons/icon128.png" alt="Claudeflare Analyiser" width="128" height="128">
+  <img src="icons/icon128.png" alt="Cloudflare Analyiser" width="128" height="128">
 </p>
 
 <p align="center">
@@ -55,7 +55,7 @@
    - **Browser TTL** — local browser cache duration
    - **Resource counts** with status indicators
 3. Click the **info button** to expand the detailed breakdown panel
-4. Click the **Claudeflare** logo for options (theme toggle, visibility, buy me a coffee)
+4. Click the **Cloudflare** logo for options (theme toggle, visibility, buy me a coffee)
 
 ## How It Works
 

@@ -71,7 +71,7 @@ html.cf-analyzer-active body.admin-bar {
   padding: 6px 12px;
   gap: 12px;
   flex-wrap: nowrap;
-  overflow-x: auto;
+  overflow: visible;
 }
 
 /* Logo Wrapper for dropdown */
@@ -81,27 +81,23 @@ html.cf-analyzer-active body.admin-bar {
 }
 
 .cf-logo {
-  font-weight: 700;
-  font-size: 13px;
-  padding: 3px 10px;
-  background: var(--cf-logo-bg);
+  display: flex;
+  align-items: center;
+  padding: 2px;
+  background: none;
   border-radius: 4px;
   cursor: pointer;
-  transition: background 0.2s;
-  white-space: nowrap;
-  letter-spacing: -0.3px;
+  transition: opacity 0.2s;
 }
 
-.cf-logo-claude {
-  color: #d4a574;
-}
-
-.cf-logo-flare {
-  color: #f48120;
+.cf-logo-img {
+  height: 22px;
+  width: auto;
+  display: block;
 }
 
 .cf-logo:hover {
-  background: var(--cf-bg-hover);
+  opacity: 0.8;
 }
 
 /* Phosphor Icons */
@@ -123,7 +119,7 @@ html.cf-analyzer-active body.admin-bar {
   border-radius: 6px;
   box-shadow: 0 4px 12px var(--cf-shadow);
   min-width: 180px;
-  z-index: 100;
+  z-index: 2147483647;
   overflow: hidden;
 }
 

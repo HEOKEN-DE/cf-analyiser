@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "Claudeflare Analyiser",
+  "name": "Cloudflare Analyiser",
   "version": "1.1.0",
   "description": "Analyze Cloudflare caching headers and display cache status for pages and resources in a human-readable format",
   "icons": {
@@ -14,7 +14,8 @@
       "48": "icons/icon48.png",
       "128": "icons/icon128.png"
     },
-    "default_title": "Toggle Claudeflare Analyiser"
+    "default_title": "Cloudflare Analyiser",
+    "default_popup": "popup.html"
   },
   "permissions": [
     "webRequest",
@@ -29,6 +30,12 @@
   "background": {
     "service_worker": "background.js"
   },
+  "web_accessible_resources": [
+    {
+      "resources": ["icons/cfa-logo.svg"],
+      "matches": ["<all_urls>"]
+    }
+  ],
   "content_scripts": [
     {
       "matches": ["<all_urls>"],

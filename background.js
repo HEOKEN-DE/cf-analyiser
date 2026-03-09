@@ -1,5 +1,5 @@
 /**
- * Claudeflare Analyiser - Background Service Worker
+ * Cloudflare Analyiser - Background Service Worker
  * Intercepts network requests and extracts Cloudflare caching headers
  */
 
@@ -345,9 +345,3 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   return true;
 });
 
-// Handle extension icon click - toggle visibility
-chrome.action.onClicked.addListener((tab) => {
-  chrome.tabs.sendMessage(tab.id, { type: 'CF_TOGGLE_VISIBILITY' }).catch(() => {
-    // Content script may not be loaded, ignore
-  });
-});

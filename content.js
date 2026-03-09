@@ -1,5 +1,5 @@
 /**
- * Claudeflare Analyiser - Content Script
+ * Cloudflare Analyiser - Content Script
  * Injects and manages the header bar UI
  */
 
@@ -286,7 +286,7 @@
       <div class="cf-option-divider"></div>
       <div class="cf-option-item cf-option-info">
         <span class="cf-option-icon">${icon('info')}</span>
-        <span class="cf-option-label">Claudeflare Analyiser v1.1</span>
+        <span class="cf-option-label">Cloudflare Analyiser v1.1</span>
       </div>
     `;
 
@@ -304,7 +304,7 @@
     bar.innerHTML = `
       <div class="cf-bar-compact">
         <div class="cf-logo-wrapper">
-          <span class="cf-logo" title="Click for options"><span class="cf-logo-claude">Claude</span><span class="cf-logo-flare">flare</span></span>
+          <span class="cf-logo" title="Click for options"><img src="${chrome.runtime.getURL('icons/cfa-logo.svg')}" alt="CFA" class="cf-logo-img"></span>
           <div class="cf-options-menu"></div>
         </div>
         <div class="cf-item cf-page-status" title="${TOOLTIPS.cacheStatus['NONE']}">
@@ -853,15 +853,22 @@
     });
   }
 
-  // Listen for data updates from background
+  // Listen for data updates from background and popup
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message.type === 'CF_DATA_UPDATE') {
       updateUI(message.data);
     } else if (message.type === 'CF_TOGGLE_VISIBILITY') {
-      // Toggle from extension button
       settings.hidden = !settings.hidden;
       applySettings();
       saveSettings();
+    } else if (message.type === 'CF_RELOAD_SETTINGS') {
+      loadSettings();
+    } else if (message.type === 'CF_APPLY_SETTINGS') {
+      // Direct settings from popup - no storage read needed
+      settings.theme = message.settings.theme;
+      settings.defaultHidden = message.settings.defaultHidden;
+      settings.hidden = message.settings.hidden;
+      applySettings();
     }
   });
 
