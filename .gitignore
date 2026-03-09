@@ -1,0 +1,16 @@
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# AI tools
+.claude/
+.cursorrules
+
+# Build artifacts
+*.zip
+dist/
