@@ -10,6 +10,7 @@ Thumbs.db
 # AI tools
 .claude/
 .cursorrules
+CLAUDE.md
 
 # Build artifacts
 *.zip

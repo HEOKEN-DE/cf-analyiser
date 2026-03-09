@@ -1,7 +1,7 @@
 # Cloudflare Analyiser
 
 <p align="center">
-  <img src="icons/icon128.png" alt="Cloudflare Analyiser" width="128" height="128">
+  <img src="icons/cfa-logo.svg" alt="Cloudflare Analyiser" width="200">
 </p>
 
 <p align="center">
