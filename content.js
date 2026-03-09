@@ -1,0 +1,826 @@
+/**
+ * CF Cache Analyzer - Content Script
+ * Injects and manages the header bar UI
+ */
+
+(function() {
+  'use strict';
+
+  // State
+  let isExpanded = false;
+  let isOptionsOpen = false;
+  let currentData = null;
+  let barElement = null;
+  let settings = {
+    theme: 'dark',
+    hidden: false
+  };
+
+  // Get current site hostname for storage key
+  const siteKey = window.location.hostname;
+
+  // Tooltip descriptions
+  const TOOLTIPS = {
+    cacheStatus: {
+      'HIT': 'Resource served from Cloudflare edge cache - fastest response',
+      'MISS': 'Resource not in cache, fetched from origin server',
+      'EXPIRED': 'Cached copy expired, re-validated with origin',
+      'DYNAMIC': 'Dynamic content, not cacheable by Cloudflare',
+      'BYPASS': 'Cache bypassed due to cookies, headers, or page rules',
+      'UPDATING': 'Stale content served while updating in background',
+      'REVALIDATED': 'Cache validated with origin, content unchanged',
+      'STALE': 'Serving stale content (origin may be down)',
+      'NONE': 'No Cloudflare cache status detected'
+    },
+    age: 'Time since this content was cached at Cloudflare edge. Higher = longer in cache.',
+    edgeTTL: 'Edge TTL (s-maxage): How long Cloudflare caches this content. Set via Cache-Control s-maxage directive.',
+    browserTTL: 'Browser TTL (max-age): How long your browser caches this content locally. Set via Cache-Control max-age directive.',
+    cfRay: 'Unique Cloudflare request ID. Format: [ID]-[datacenter]. Useful for debugging with Cloudflare support.',
+    server: 'Server software handling the response',
+    apo: 'Automatic Platform Optimization - Cloudflare caches entire HTML pages for supported platforms',
+    wpSuperCache: 'WordPress Super Page Cache plugin is active and caching pages',
+    diskCache: 'Local disk cache status from WordPress caching plugin',
+    resourceCount: 'Number of internal resources of this type detected',
+    avgAge: 'Average cache age across all resources of this type'
+  };
+
+  // Load settings from storage
+  async function loadSettings() {
+    try {
+      const result = await chrome.storage.local.get(['cfAnalyzerGlobal', `cfAnalyzerSite_${siteKey}`]);
+      const globalSettings = result.cfAnalyzerGlobal || {};
+      const siteSettings = result[`cfAnalyzerSite_${siteKey}`] || {};
+
+      settings.theme = globalSettings.theme || 'dark';
+      settings.hidden = siteSettings.hidden || false;
+
+      applySettings();
+    } catch (e) {
+      console.error('CF Analyzer: Failed to load settings', e);
+    }
+  }
+
+  // Save settings to storage
+  async function saveSettings(global = false) {
+    try {
+      if (global) {
+        await chrome.storage.local.set({ cfAnalyzerGlobal: { theme: settings.theme } });
+      }
+      await chrome.storage.local.set({ [`cfAnalyzerSite_${siteKey}`]: { hidden: settings.hidden } });
+    } catch (e) {
+      console.error('CF Analyzer: Failed to save settings', e);
+    }
+  }
+
+  // Apply current settings to UI
+  function applySettings() {
+    if (!barElement) return;
+
+    // Apply theme
+    barElement.setAttribute('data-theme', settings.theme);
+    document.documentElement.setAttribute('data-cf-theme', settings.theme);
+
+    // Apply visibility
+    if (settings.hidden) {
+      barElement.classList.add('cf-hidden');
+      document.body?.classList.remove('cf-analyzer-active', 'cf-analyzer-expanded');
+      document.documentElement.classList.remove('cf-analyzer-active', 'cf-analyzer-expanded');
+    } else {
+      barElement.classList.remove('cf-hidden');
+      if (isExpanded) {
+        document.body?.classList.add('cf-analyzer-expanded');
+        document.documentElement.classList.add('cf-analyzer-expanded');
+      } else {
+        document.body?.classList.add('cf-analyzer-active');
+        document.documentElement.classList.add('cf-analyzer-active');
+      }
+    }
+  }
+
+  // Toggle theme
+  function toggleTheme() {
+    settings.theme = settings.theme === 'dark' ? 'light' : 'dark';
+    applySettings();
+    saveSettings(true);
+    updateOptionsMenu();
+  }
+
+  // Toggle visibility for this site
+  function toggleVisibility() {
+    settings.hidden = !settings.hidden;
+    applySettings();
+    saveSettings();
+    closeOptionsMenu();
+  }
+
+  // Format seconds to human-readable time
+  function formatAge(seconds) {
+    if (seconds === null || seconds === undefined) return '-';
+
+    if (seconds < 60) {
+      return `${seconds}s`;
+    } else if (seconds < 3600) {
+      const m = Math.floor(seconds / 60);
+      const s = seconds % 60;
+      return s > 0 ? `${m}m ${s}s` : `${m}m`;
+    } else if (seconds < 86400) {
+      const h = Math.floor(seconds / 3600);
+      const m = Math.floor((seconds % 3600) / 60);
+      return m > 0 ? `${h}h ${m}m` : `${h}h`;
+    } else if (seconds < 604800) {
+      const d = Math.floor(seconds / 86400);
+      const h = Math.floor((seconds % 86400) / 3600);
+      return h > 0 ? `${d}d ${h}h` : `${d}d`;
+    } else if (seconds < 31536000) {
+      const w = Math.floor(seconds / 604800);
+      const d = Math.floor((seconds % 604800) / 86400);
+      return d > 0 ? `${w}w ${d}d` : `${w}w`;
+    } else {
+      const y = Math.floor(seconds / 31536000);
+      return `${y}yr`;
+    }
+  }
+
+  // Format TTL to human-readable
+  function formatTTL(seconds) {
+    if (seconds === null || seconds === undefined) return '-';
+    if (seconds >= 31536000) return '1yr';
+    return formatAge(seconds);
+  }
+
+  // Get CSS class for cache status
+  function getStatusClass(status) {
+    if (!status) return 'cf-status-unknown';
+    const s = status.toUpperCase();
+    switch (s) {
+      case 'HIT': return 'cf-status-hit';
+      case 'MISS': return 'cf-status-miss';
+      case 'EXPIRED': return 'cf-status-expired';
+      case 'DYNAMIC': return 'cf-status-dynamic';
+      case 'BYPASS': return 'cf-status-bypass';
+      case 'UPDATING': return 'cf-status-updating';
+      case 'REVALIDATED': return 'cf-status-revalidated';
+      case 'STALE': return 'cf-status-stale';
+      default: return 'cf-status-unknown';
+    }
+  }
+
+  // Get tooltip for cache status
+  function getStatusTooltip(status) {
+    if (!status) return TOOLTIPS.cacheStatus['NONE'];
+    return TOOLTIPS.cacheStatus[status.toUpperCase()] || `Cache status: ${status}`;
+  }
+
+  // Get CSS class for age/TTL value
+  function getAgeClass(seconds) {
+    if (seconds === null || seconds === undefined) return '';
+    if (seconds >= 86400) return 'cf-age-excellent';
+    if (seconds >= 3600) return 'cf-age-good';
+    if (seconds >= 60) return 'cf-age-minimal';
+    return 'cf-age-poor';
+  }
+
+  function getTTLClass(seconds) {
+    if (seconds === null || seconds === undefined) return 'cf-ttl-poor';
+    if (seconds >= 86400) return 'cf-ttl-excellent';
+    if (seconds >= 3600) return 'cf-ttl-good';
+    if (seconds >= 60) return 'cf-ttl-minimal';
+    return 'cf-ttl-poor';
+  }
+
+  // Get resource type icon
+  function getResourceIcon(type) {
+    switch (type) {
+      case 'css': return 'CSS';
+      case 'js': return 'JS';
+      case 'image': return 'IMG';
+      case 'font': return 'Font';
+      case 'ajax': return 'AJAX';
+      default: return 'Other';
+    }
+  }
+
+  // Format timestamp to readable time
+  function formatTime(timestamp) {
+    const date = new Date(timestamp);
+    return date.toLocaleTimeString('en-US', { hour12: false });
+  }
+
+  // Close options menu
+  function closeOptionsMenu() {
+    isOptionsOpen = false;
+    const menu = barElement?.querySelector('.cf-options-menu');
+    if (menu) menu.classList.remove('cf-open');
+  }
+
+  // Toggle options menu
+  function toggleOptionsMenu(e) {
+    e.stopPropagation();
+    isOptionsOpen = !isOptionsOpen;
+    const menu = barElement.querySelector('.cf-options-menu');
+    if (isOptionsOpen) {
+      menu.classList.add('cf-open');
+      updateOptionsMenu();
+    } else {
+      menu.classList.remove('cf-open');
+    }
+  }
+
+  // Update options menu content
+  function updateOptionsMenu() {
+    const menu = barElement?.querySelector('.cf-options-menu');
+    if (!menu) return;
+
+    menu.innerHTML = `
+      <div class="cf-option-item" data-action="toggle-theme">
+        <span class="cf-option-icon">${settings.theme === 'dark' ? '☀️' : '🌙'}</span>
+        <span class="cf-option-label">${settings.theme === 'dark' ? 'Light Mode' : 'Dark Mode'}</span>
+      </div>
+      <div class="cf-option-item" data-action="toggle-visibility">
+        <span class="cf-option-icon">👁️</span>
+        <span class="cf-option-label">Hide on this site</span>
+      </div>
+      <div class="cf-option-divider"></div>
+      <div class="cf-option-item cf-option-info">
+        <span class="cf-option-icon">ℹ️</span>
+        <span class="cf-option-label">CF Cache Analyzer v1.0</span>
+      </div>
+    `;
+
+    // Add event listeners
+    menu.querySelector('[data-action="toggle-theme"]').addEventListener('click', toggleTheme);
+    menu.querySelector('[data-action="toggle-visibility"]').addEventListener('click', toggleVisibility);
+  }
+
+  // Create the header bar element
+  function createBar() {
+    const bar = document.createElement('div');
+    bar.id = 'cf-analyzer-bar';
+    bar.setAttribute('data-theme', settings.theme);
+    bar.innerHTML = `
+      <div class="cf-bar-compact">
+        <div class="cf-logo-wrapper">
+          <span class="cf-logo" title="Click for options">CF</span>
+          <div class="cf-options-menu"></div>
+        </div>
+        <div class="cf-item cf-page-status" title="${TOOLTIPS.cacheStatus['NONE']}">
+          <span class="cf-status cf-status-unknown">Loading...</span>
+        </div>
+        <div class="cf-item cf-page-age" title="${TOOLTIPS.age}">
+          <span class="cf-label">Age:</span>
+          <span class="cf-value">-</span>
+        </div>
+        <div class="cf-item cf-page-edge-ttl" title="${TOOLTIPS.edgeTTL}">
+          <span class="cf-label">Edge:</span>
+          <span class="cf-value">-</span>
+        </div>
+        <div class="cf-item cf-page-browser-ttl" title="${TOOLTIPS.browserTTL}">
+          <span class="cf-label">Browser:</span>
+          <span class="cf-value">-</span>
+        </div>
+        <div class="cf-separator"></div>
+        <div class="cf-resources-summary"></div>
+        <button class="cf-toggle-btn" title="Show detailed breakdown">ⓘ</button>
+      </div>
+      <div class="cf-details-panel">
+        <div class="cf-page-info">
+          <div class="cf-page-url"></div>
+          <div class="cf-page-details"></div>
+        </div>
+        <div class="cf-resources-details"></div>
+      </div>
+    `;
+
+    // Event listeners
+    const logo = bar.querySelector('.cf-logo');
+    logo.addEventListener('click', toggleOptionsMenu);
+
+    const toggleBtn = bar.querySelector('.cf-toggle-btn');
+    toggleBtn.addEventListener('click', toggleDetails);
+
+    // Close options menu when clicking outside
+    document.addEventListener('click', (e) => {
+      if (isOptionsOpen && !e.target.closest('.cf-logo-wrapper')) {
+        closeOptionsMenu();
+      }
+    });
+
+    return bar;
+  }
+
+  // Toggle details panel
+  function toggleDetails() {
+    isExpanded = !isExpanded;
+    const panel = barElement.querySelector('.cf-details-panel');
+    const toggleBtn = barElement.querySelector('.cf-toggle-btn');
+
+    if (isExpanded) {
+      panel.classList.add('cf-open');
+      toggleBtn.textContent = '✕';
+      toggleBtn.title = 'Close details panel';
+      document.body?.classList.add('cf-analyzer-expanded');
+      document.body?.classList.remove('cf-analyzer-active');
+      document.documentElement.classList.add('cf-analyzer-expanded');
+      document.documentElement.classList.remove('cf-analyzer-active');
+    } else {
+      panel.classList.remove('cf-open');
+      toggleBtn.textContent = 'ⓘ';
+      toggleBtn.title = 'Show detailed breakdown';
+      document.body?.classList.remove('cf-analyzer-expanded');
+      document.body?.classList.add('cf-analyzer-active');
+      document.documentElement.classList.remove('cf-analyzer-expanded');
+      document.documentElement.classList.add('cf-analyzer-active');
+    }
+  }
+
+  // Update the compact bar
+  function updateCompactBar(data) {
+    if (!barElement || !data) return;
+
+    // Update page status
+    const statusContainer = barElement.querySelector('.cf-page-status');
+    const statusEl = statusContainer.querySelector('.cf-status');
+    if (data.page && data.page.cacheStatus) {
+      statusEl.className = `cf-status ${getStatusClass(data.page.cacheStatus)}`;
+      statusEl.textContent = data.page.cacheStatus;
+      statusContainer.title = getStatusTooltip(data.page.cacheStatus);
+    } else {
+      statusEl.className = 'cf-status cf-status-unknown';
+      statusEl.textContent = 'No CF';
+      statusContainer.title = 'No Cloudflare headers detected - site may not be using Cloudflare';
+    }
+
+    // Update page age
+    const ageEl = barElement.querySelector('.cf-page-age .cf-value');
+    if (data.page && data.page.age !== null) {
+      ageEl.textContent = formatAge(data.page.age);
+      ageEl.className = `cf-value ${getAgeClass(data.page.age)}`;
+    } else {
+      ageEl.textContent = '-';
+      ageEl.className = 'cf-value';
+    }
+
+    // Update Edge TTL
+    const edgeTTLEl = barElement.querySelector('.cf-page-edge-ttl .cf-value');
+    if (data.page && data.page.edgeTTL !== null) {
+      edgeTTLEl.textContent = formatTTL(data.page.edgeTTL);
+      edgeTTLEl.className = `cf-value ${getTTLClass(data.page.edgeTTL)}`;
+    } else {
+      edgeTTLEl.textContent = '-';
+      edgeTTLEl.className = 'cf-value';
+    }
+
+    // Update Browser TTL
+    const browserTTLEl = barElement.querySelector('.cf-page-browser-ttl .cf-value');
+    if (data.page && data.page.browserTTL !== null) {
+      browserTTLEl.textContent = formatTTL(data.page.browserTTL);
+      browserTTLEl.className = `cf-value ${getTTLClass(data.page.browserTTL)}`;
+    } else {
+      browserTTLEl.textContent = '-';
+      browserTTLEl.className = 'cf-value';
+    }
+
+    // Update resources summary
+    const summaryEl = barElement.querySelector('.cf-resources-summary');
+    let summaryHtml = '';
+
+    const types = ['css', 'js', 'image', 'font', 'ajax'];
+    for (const type of types) {
+      const s = data.summary && data.summary[type];
+      const count = s ? s.count : 0;
+      const avgAge = s ? s.avgAge : null;
+      const avgAgeFormatted = avgAge !== null ? formatAge(avgAge) : '-';
+
+      let statusClass = 'cf-status-unknown';
+      let statusTooltip = `${count} ${getResourceIcon(type)} files detected`;
+
+      if (s && count > 0) {
+        statusClass = s.hitCount === s.count ? 'cf-status-hit' :
+                      s.missCount === s.count ? 'cf-status-miss' : 'cf-status-expired';
+        statusTooltip = `${count} files: ${s.hitCount} HIT, ${s.missCount} MISS. Avg age: ${avgAgeFormatted}`;
+      }
+
+      summaryHtml += `
+        <div class="cf-resource-summary" title="${statusTooltip}">
+          <span class="cf-resource-type">${getResourceIcon(type)}:</span>
+          <span class="cf-resource-count">${count}</span>
+          <span class="cf-status-dot ${statusClass}"></span>
+          <span class="cf-resource-age ${getAgeClass(avgAge)}">${avgAgeFormatted}</span>
+        </div>
+      `;
+    }
+
+    summaryEl.innerHTML = summaryHtml;
+  }
+
+  // Update the details panel
+  function updateDetailsPanel(data) {
+    if (!barElement || !data) return;
+
+    // Update page URL
+    const pageUrlEl = barElement.querySelector('.cf-page-url');
+    pageUrlEl.textContent = data.page ? data.page.url : window.location.href;
+
+    // Update page details
+    const pageDetailsEl = barElement.querySelector('.cf-page-details');
+    let detailsHtml = '';
+
+    if (data.page) {
+      const p = data.page;
+
+      detailsHtml += `
+        <div class="cf-detail-item" title="${getStatusTooltip(p.cacheStatus)}">
+          <span class="cf-detail-label">Status</span>
+          <span class="cf-detail-value cf-status ${getStatusClass(p.cacheStatus)}">${p.cacheStatus || 'N/A'}</span>
+        </div>
+        <div class="cf-detail-item" title="${TOOLTIPS.age}">
+          <span class="cf-detail-label">Age</span>
+          <span class="cf-detail-value ${getAgeClass(p.age)}">${p.age !== null ? `${formatAge(p.age)} (${p.age}s)` : '-'}</span>
+        </div>
+        <div class="cf-detail-item" title="${TOOLTIPS.edgeTTL}">
+          <span class="cf-detail-label">Edge TTL</span>
+          <span class="cf-detail-value ${getTTLClass(p.edgeTTL)}">${p.edgeTTL !== null ? `${formatTTL(p.edgeTTL)} (${p.edgeTTL}s)` : '-'}</span>
+        </div>
+        <div class="cf-detail-item" title="${TOOLTIPS.browserTTL}">
+          <span class="cf-detail-label">Browser TTL</span>
+          <span class="cf-detail-value ${getTTLClass(p.browserTTL)}">${p.browserTTL !== null ? `${formatTTL(p.browserTTL)} (${p.browserTTL}s)` : '-'}</span>
+        </div>
+      `;
+
+      if (p.cfRay) {
+        detailsHtml += `
+          <div class="cf-detail-item" title="${TOOLTIPS.cfRay}">
+            <span class="cf-detail-label">Ray ID</span>
+            <span class="cf-detail-value">${p.cfRay}</span>
+          </div>
+        `;
+      }
+
+      if (p.server) {
+        detailsHtml += `
+          <div class="cf-detail-item" title="${TOOLTIPS.server}">
+            <span class="cf-detail-label">Server</span>
+            <span class="cf-detail-value">${p.server}</span>
+          </div>
+        `;
+      }
+
+      if (p.cfApoVia) {
+        detailsHtml += `
+          <div class="cf-detail-item" title="${TOOLTIPS.apo}">
+            <span class="cf-detail-label">APO</span>
+            <span class="cf-detail-value">${p.cfApoVia}</span>
+          </div>
+        `;
+      }
+
+      if (p.wpSuperCache) {
+        detailsHtml += `
+          <div class="cf-detail-item" title="${TOOLTIPS.wpSuperCache}">
+            <span class="cf-detail-label">WP Super Cache</span>
+            <span class="cf-detail-value cf-status-hit">${p.wpSuperCache}</span>
+          </div>
+        `;
+      }
+
+      if (p.wpDiskCache) {
+        detailsHtml += `
+          <div class="cf-detail-item" title="${TOOLTIPS.diskCache}">
+            <span class="cf-detail-label">Disk Cache</span>
+            <span class="cf-detail-value ${p.wpDiskCache === 'HIT' ? 'cf-status-hit' : 'cf-status-miss'}">${p.wpDiskCache}</span>
+          </div>
+        `;
+      }
+
+      if (p.cacheControl) {
+        detailsHtml += `
+          <div class="cf-detail-item" title="Full Cache-Control header value from server">
+            <span class="cf-detail-label">Cache-Control</span>
+            <span class="cf-detail-value" style="font-size: 10px; word-break: break-all;">${p.cacheControl}</span>
+          </div>
+        `;
+      }
+    }
+
+    pageDetailsEl.innerHTML = detailsHtml;
+
+    // Update resources details
+    const resourcesDetailsEl = barElement.querySelector('.cf-resources-details');
+    let resourcesHtml = '';
+
+    const typeLabels = {
+      css: 'CSS Stylesheets',
+      js: 'JavaScript',
+      image: 'Images',
+      font: 'Fonts',
+      ajax: 'AJAX / API Requests',
+      other: 'Other Resources'
+    };
+
+    // Process non-AJAX resources first
+    for (const [type, resources] of Object.entries(data.resources || {})) {
+      if (type === 'ajax' || resources.length === 0) continue;
+
+      resourcesHtml += `
+        <div class="cf-resource-section">
+          <div class="cf-resource-header">
+            <span class="cf-resource-icon">${getResourceIcon(type)}</span>
+            ${typeLabels[type]} (${resources.length} files)
+          </div>
+          <div class="cf-resource-table">
+            <div class="cf-resource-table-header">
+              <span class="cf-th-url">Resource</span>
+              <span class="cf-th-status">Status</span>
+              <span class="cf-th-age">Age</span>
+              <span class="cf-th-edge">Edge TTL</span>
+              <span class="cf-th-browser">Browser TTL</span>
+            </div>
+            <ul class="cf-resource-list">
+      `;
+
+      for (const r of resources) {
+        const statusTooltip = getStatusTooltip(r.cacheStatus);
+        const ageTooltip = r.age !== null ? `Cached ${r.age} seconds ago` : 'Age not available';
+        const edgeTooltip = r.edgeTTL !== null ? `Edge caches for ${r.edgeTTL} seconds` : 'No edge TTL set';
+        const browserTooltip = r.browserTTL !== null ? `Browser caches for ${r.browserTTL} seconds` : 'No browser TTL set';
+
+        resourcesHtml += `
+          <li class="cf-resource-item">
+            <a href="${r.url}" target="_blank" rel="noopener" class="cf-resource-url" title="Open in new tab: ${r.url}">
+              ${r.shortPath}
+              <span class="cf-external-icon">↗</span>
+            </a>
+            <span class="cf-status ${getStatusClass(r.cacheStatus)}" title="${statusTooltip}">${r.cacheStatus || '-'}</span>
+            <span class="${getAgeClass(r.age)}" title="${ageTooltip}">${formatAge(r.age)}</span>
+            <span class="${getTTLClass(r.edgeTTL)}" title="${edgeTooltip}">${formatTTL(r.edgeTTL)}</span>
+            <span class="${getTTLClass(r.browserTTL)}" title="${browserTooltip}">${formatTTL(r.browserTTL)}</span>
+          </li>
+        `;
+      }
+
+      resourcesHtml += `
+            </ul>
+          </div>
+        </div>
+      `;
+    }
+
+    // Process AJAX requests separately with different columns
+    const ajaxResources = data.resources?.ajax || [];
+    if (ajaxResources.length > 0) {
+      resourcesHtml += `
+        <div class="cf-resource-section cf-ajax-section">
+          <div class="cf-resource-header">
+            <span class="cf-resource-icon">${getResourceIcon('ajax')}</span>
+            ${typeLabels['ajax']} (${ajaxResources.length} requests)
+          </div>
+          <div class="cf-resource-table cf-ajax-table">
+            <div class="cf-resource-table-header cf-ajax-header">
+              <span class="cf-th-time">Time</span>
+              <span class="cf-th-method">Method</span>
+              <span class="cf-th-url">Endpoint</span>
+              <span class="cf-th-status">CF Status</span>
+              <span class="cf-th-age">Age</span>
+              <span class="cf-th-cache">Cache Info</span>
+            </div>
+            <ul class="cf-resource-list">
+      `;
+
+      // Show most recent first
+      const sortedAjax = [...ajaxResources].reverse();
+      for (const r of sortedAjax) {
+        const statusTooltip = getStatusTooltip(r.cacheStatus);
+        const methodClass = r.method === 'GET' ? 'cf-method-get' :
+                           r.method === 'POST' ? 'cf-method-post' :
+                           r.method === 'PUT' ? 'cf-method-put' :
+                           r.method === 'DELETE' ? 'cf-method-delete' : '';
+
+        let cacheInfo = '-';
+        let cacheClass = '';
+        if (r.noStore) {
+          cacheInfo = 'no-store';
+          cacheClass = 'cf-status-miss';
+        } else if (r.noCache) {
+          cacheInfo = 'no-cache';
+          cacheClass = 'cf-status-expired';
+        } else if (r.isPrivate) {
+          cacheInfo = 'private';
+          cacheClass = 'cf-status-bypass';
+        } else if (r.browserTTL) {
+          cacheInfo = `max-age=${r.browserTTL}`;
+          cacheClass = getTTLClass(r.browserTTL);
+        }
+
+        resourcesHtml += `
+          <li class="cf-resource-item cf-ajax-item">
+            <span class="cf-ajax-time">${formatTime(r.timestamp)}</span>
+            <span class="cf-ajax-method ${methodClass}" title="HTTP ${r.method} request">${r.method}</span>
+            <a href="${r.url}" target="_blank" rel="noopener" class="cf-resource-url" title="Open in new tab: ${r.url}">
+              ${r.shortPath}
+              <span class="cf-external-icon">↗</span>
+            </a>
+            <span class="cf-status ${getStatusClass(r.cacheStatus)}" title="${statusTooltip}">${r.cacheStatus || '-'}</span>
+            <span class="${getAgeClass(r.age)}" title="${r.age !== null ? `Cached ${r.age}s ago` : 'Not cached'}">${formatAge(r.age)}</span>
+            <span class="${cacheClass}" title="${r.cacheControl || 'No cache-control header'}">${cacheInfo}</span>
+          </li>
+        `;
+      }
+
+      resourcesHtml += `
+            </ul>
+          </div>
+        </div>
+      `;
+    }
+
+    // Check for browser-cached resources using Performance API
+    const perfResources = detectBrowserCachedResources(data);
+    if (perfResources.length > 0) {
+      resourcesHtml += `
+        <div class="cf-resource-section cf-browser-cached">
+          <div class="cf-resource-header">
+            <span class="cf-resource-icon">CACHE</span>
+            Browser Cached (${perfResources.length} files)
+            <span class="cf-cache-note">- No headers available</span>
+          </div>
+          <div class="cf-resource-table">
+            <div class="cf-resource-table-header">
+              <span class="cf-th-url">Resource</span>
+              <span class="cf-th-type">Type</span>
+              <span class="cf-th-size">Size</span>
+              <span class="cf-th-time">Load Time</span>
+              <span class="cf-th-source">Source</span>
+            </div>
+            <ul class="cf-resource-list">
+      `;
+
+      for (const r of perfResources) {
+        resourcesHtml += `
+          <li class="cf-resource-item">
+            <a href="${r.url}" target="_blank" rel="noopener" class="cf-resource-url" title="Open in new tab: ${r.url}">
+              ${r.shortPath}
+              <span class="cf-external-icon">↗</span>
+            </a>
+            <span>${r.type}</span>
+            <span>${r.size}</span>
+            <span class="cf-age-excellent">${r.duration}</span>
+            <span class="cf-status-hit">Browser</span>
+          </li>
+        `;
+      }
+
+      resourcesHtml += `
+            </ul>
+          </div>
+        </div>
+      `;
+    }
+
+    if (!resourcesHtml) {
+      resourcesHtml = '<div class="cf-no-resources">No internal resources detected. Try refreshing with cache disabled (Ctrl+Shift+R) to capture headers.</div>';
+    }
+
+    resourcesDetailsEl.innerHTML = resourcesHtml;
+  }
+
+  // Detect browser-cached resources using Performance API
+  function detectBrowserCachedResources(data) {
+    const pageHost = window.location.hostname;
+    const trackedUrls = new Set();
+
+    // Collect already tracked URLs
+    if (data && data.resources) {
+      for (const resources of Object.values(data.resources)) {
+        for (const r of resources) {
+          trackedUrls.add(r.url);
+        }
+      }
+    }
+
+    const browserCached = [];
+
+    try {
+      const entries = performance.getEntriesByType('resource');
+      for (const entry of entries) {
+        // Skip already tracked or external resources
+        if (trackedUrls.has(entry.name)) continue;
+
+        try {
+          const url = new URL(entry.name);
+          if (url.hostname !== pageHost) continue;
+
+          // Check if served from cache (transferSize = 0 usually means cache)
+          if (entry.transferSize === 0 && entry.decodedBodySize > 0) {
+            const ext = url.pathname.split('.').pop().toLowerCase();
+            let type = 'Other';
+            if (['css'].includes(ext)) type = 'CSS';
+            else if (['js', 'mjs'].includes(ext)) type = 'JS';
+            else if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'ico', 'avif'].includes(ext)) type = 'IMG';
+            else if (['woff', 'woff2', 'ttf', 'otf', 'eot'].includes(ext)) type = 'Font';
+
+            let shortPath = url.pathname;
+            if (shortPath.length > 50) {
+              shortPath = '...' + shortPath.slice(-47);
+            }
+
+            browserCached.push({
+              url: entry.name,
+              shortPath: shortPath,
+              type: type,
+              size: formatBytes(entry.decodedBodySize),
+              duration: `${Math.round(entry.duration)}ms`
+            });
+          }
+        } catch (e) {
+          // Invalid URL, skip
+        }
+      }
+    } catch (e) {
+      // Performance API not available
+    }
+
+    return browserCached;
+  }
+
+  // Format bytes to human readable
+  function formatBytes(bytes) {
+    if (bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+  }
+
+  // Update the entire UI
+  function updateUI(data) {
+    currentData = data;
+    updateCompactBar(data);
+    updateDetailsPanel(data);
+  }
+
+  // Initialize the bar
+  async function init() {
+    // Don't inject in iframes
+    if (window.self !== window.top) return;
+
+    // Don't inject if already exists
+    if (document.getElementById('cf-analyzer-bar')) return;
+
+    // Load settings first
+    await loadSettings();
+
+    // Create and inject the bar
+    barElement = createBar();
+
+    // Insert bar after <head>, before <body> - inside <html>
+    function insertBar() {
+      // Insert after head, before body
+      if (document.body) {
+        document.documentElement.insertBefore(barElement, document.body);
+      } else if (document.head) {
+        document.head.insertAdjacentElement('afterend', barElement);
+      } else {
+        document.documentElement.prepend(barElement);
+      }
+
+      applySettings();
+    }
+
+    if (document.body) {
+      insertBar();
+    } else {
+      document.addEventListener('DOMContentLoaded', insertBar);
+    }
+
+    // Request initial data from background
+    chrome.runtime.sendMessage({ type: 'GET_CF_DATA' }, (response) => {
+      if (response) {
+        updateUI(response);
+      }
+    });
+
+    // Also check for browser-cached resources after page load
+    window.addEventListener('load', () => {
+      setTimeout(() => {
+        if (currentData) {
+          updateDetailsPanel(currentData);
+        }
+      }, 500);
+    });
+  }
+
+  // Listen for data updates from background
+  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (message.type === 'CF_DATA_UPDATE') {
+      updateUI(message.data);
+    } else if (message.type === 'CF_TOGGLE_VISIBILITY') {
+      // Toggle from extension button
+      settings.hidden = !settings.hidden;
+      applySettings();
+      saveSettings();
+    }
+  });
+
+  // Initialize
+  init();
+})();
